@@ -22,11 +22,10 @@
 <button onclick="loadDevice()">Refresh</button>
 </div>
 <script>
-const API=''; // same origin, uses X-API-Key header from prompt
-let apiKey=localStorage.getItem('pwa_api_key')||prompt('Enter PWA API Key');
-if(apiKey) localStorage.setItem('pwa_api_key',apiKey);
+const API=''; // same origin — PWA is source of truth, no API key needed in browser
 async function api(path, opts={}){
-  opts.headers=Object.assign({'X-API-Key':apiKey,'X-Device-Token':localStorage.getItem('device_token')||apiKey,'Content-Type':'application/json'}, opts.headers||{});
+  opts.headers=Object.assign({'Content-Type':'application/json'}, opts.headers||{});
+  // Android still sends X-API-Key/X-Device-Token; browser admin doesn't need it (GET is public, POST uses server session)
   const r=await fetch(path,opts);
   if(!r.ok) throw new Error(await r.text());
   return r.json();
