@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: welfare-pwa
+    env: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20.20.2
