@@ -32,8 +32,8 @@ const pool = mysql.createPool({
 // Init tables — auto-create DB if missing (TiDB starts empty)
 async function initDb() {
   try {
-    await pool.query(`CREATE TABLE IF NOT EXISTS groups (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, updatedAt BIGINT, archived TINYINT DEFAULT 0)`);
-    await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES groups(remoteId))`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS contact_groups (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, updatedAt BIGINT, archived TINYINT DEFAULT 0)`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES contact_groups(remoteId))`);
     await pool.query(`CREATE TABLE IF NOT EXISTS device_bindings (api_key VARCHAR(64) PRIMARY KEY, bound_device_id VARCHAR(128), device_token VARCHAR(512), bound_at BIGINT, last_seen BIGINT)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS otp_challenges (api_key VARCHAR(64) PRIMARY KEY, otp_hash VARCHAR(128), expires_at BIGINT, attempts TINYINT DEFAULT 0)`);
   } catch (e) {
@@ -51,8 +51,8 @@ async function initDb() {
         console.log(`Created database ${dbName}, retrying init...`);
         await tmpPool.end();
         // Retry once
-        await pool.query(`CREATE TABLE IF NOT EXISTS groups (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, updatedAt BIGINT, archived TINYINT DEFAULT 0)`);
-        await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES groups(remoteId))`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS contact_groups (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, updatedAt BIGINT, archived TINYINT DEFAULT 0)`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES contact_groups(remoteId))`);
         await pool.query(`CREATE TABLE IF NOT EXISTS device_bindings (api_key VARCHAR(64) PRIMARY KEY, bound_device_id VARCHAR(128), device_token VARCHAR(512), bound_at BIGINT, last_seen BIGINT)`);
         await pool.query(`CREATE TABLE IF NOT EXISTS otp_challenges (api_key VARCHAR(64) PRIMARY KEY, otp_hash VARCHAR(128), expires_at BIGINT, attempts TINYINT DEFAULT 0)`);
       } catch (e2) {
@@ -130,7 +130,7 @@ function verify(req,res,next){
 app.get('/api/contacts.json', async(req,res)=>{
   try{
     const since=Number(req.query.since||0);
-    const [groups]=await pool.query('SELECT * FROM groups WHERE updatedAt>?',[since]);
+    const [groups]=await pool.query('SELECT * FROM contact_groups WHERE updatedAt>?',[since]);
     const [contacts]=await pool.query('SELECT * FROM contacts WHERE updatedAt>?',[since]);
     res.json({version:2, generatedAt:Date.now(), groups, contacts});
   }catch(e){
@@ -141,11 +141,11 @@ app.get('/api/contacts.json', async(req,res)=>{
 app.post('/api/contacts/upsert', verify, async(req,res)=>{
   const {groups=[], contacts=[]}=req.body; const now=Date.now();
   for(const g of groups){
-    const [existing]=await pool.query('SELECT * FROM groups WHERE remoteId=?',[g.remoteId]);
+    const [existing]=await pool.query('SELECT * FROM contact_groups WHERE remoteId=?',[g.remoteId]);
     const name=g.name ?? existing[0]?.name ?? 'Unnamed';
     const desc=g.description ?? existing[0]?.description ?? '';
     const archived=g.archived!=null? (g.archived?1:0) : (existing[0]?.archived??0);
-    await pool.query('REPLACE INTO groups VALUES (?,?,?,?,?)',[g.remoteId,name,desc, g.updatedAt||now, archived]);
+    await pool.query('REPLACE INTO contact_groups VALUES (?,?,?,?,?)',[g.remoteId,name,desc, g.updatedAt||now, archived]);
   }
   for(const c of contacts){
     const [existing]=await pool.query('SELECT * FROM contacts WHERE remoteId=?',[c.remoteId]);
