@@ -153,7 +153,12 @@ app.post('/api/contacts/upsert', verify, async(req,res)=>{
       const name=g.name ?? existing[0]?.name ?? 'Unnamed';
       const desc=g.description ?? existing[0]?.description ?? '';
       const archived=g.archived!=null? (g.archived?1:0) : (existing[0]?.archived??0);
-      await pool.query('REPLACE INTO contact_groups VALUES (?,?,?,?,?)',[g.remoteId,name,desc, g.updatedAt||now, archived]);
+      const ts=g.updatedAt||now;
+      if(existing.length>0){
+        await pool.query('UPDATE contact_groups SET name=?, description=?, updatedAt=?, archived=? WHERE remoteId=?',[name,desc,ts,archived,g.remoteId]);
+      } else {
+        await pool.query('INSERT INTO contact_groups VALUES (?,?,?,?,?)',[g.remoteId,name,desc,ts,archived]);
+      }
     }
     for(const c of contacts){
       const [existing]=await pool.query('SELECT * FROM contacts WHERE remoteId=?',[c.remoteId]);
@@ -161,7 +166,12 @@ app.post('/api/contacts/upsert', verify, async(req,res)=>{
       const phone=c.phoneNumber ?? existing[0]?.phoneNumber ?? '';
       const gr=c.groupRemoteId ?? existing[0]?.groupRemoteId ?? null;
       const archived=c.archived!=null? (c.archived?1:0) : (existing[0]?.archived??0);
-      await pool.query('REPLACE INTO contacts VALUES (?,?,?,?,?,?)',[c.remoteId,name,phone,gr, c.updatedAt||now, archived]);
+      const ts=c.updatedAt||now;
+      if(existing.length>0){
+        await pool.query('UPDATE contacts SET name=?, phoneNumber=?, groupRemoteId=?, updatedAt=?, archived=? WHERE remoteId=?',[name,phone,gr,ts,archived,c.remoteId]);
+      } else {
+        await pool.query('INSERT INTO contacts VALUES (?,?,?,?,?,?)',[c.remoteId,name,phone,gr,ts,archived]);
+      }
     }
     res.json({ok:true});
   }catch(e){
