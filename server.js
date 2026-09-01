@@ -10,6 +10,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
+// favicon 204 to avoid 404 log noise
+app.get('/favicon.ico', (req,res)=> res.status(204).end());
 
 function buildSsl() {
   // TiDB Cloud requires TLS. Try CA file if present, else fallback to system CAs
@@ -144,28 +146,38 @@ app.get('/api/contacts.json', async(req,res)=>{
   }
 });
 app.post('/api/contacts/upsert', verify, async(req,res)=>{
-  const {groups=[], contacts=[]}=req.body; const now=Date.now();
-  for(const g of groups){
-    const [existing]=await pool.query('SELECT * FROM contact_groups WHERE remoteId=?',[g.remoteId]);
-    const name=g.name ?? existing[0]?.name ?? 'Unnamed';
-    const desc=g.description ?? existing[0]?.description ?? '';
-    const archived=g.archived!=null? (g.archived?1:0) : (existing[0]?.archived??0);
-    await pool.query('REPLACE INTO contact_groups VALUES (?,?,?,?,?)',[g.remoteId,name,desc, g.updatedAt||now, archived]);
+  try{
+    const {groups=[], contacts=[]}=req.body; const now=Date.now();
+    for(const g of groups){
+      const [existing]=await pool.query('SELECT * FROM contact_groups WHERE remoteId=?',[g.remoteId]);
+      const name=g.name ?? existing[0]?.name ?? 'Unnamed';
+      const desc=g.description ?? existing[0]?.description ?? '';
+      const archived=g.archived!=null? (g.archived?1:0) : (existing[0]?.archived??0);
+      await pool.query('REPLACE INTO contact_groups VALUES (?,?,?,?,?)',[g.remoteId,name,desc, g.updatedAt||now, archived]);
+    }
+    for(const c of contacts){
+      const [existing]=await pool.query('SELECT * FROM contacts WHERE remoteId=?',[c.remoteId]);
+      const name=c.name ?? existing[0]?.name ?? '';
+      const phone=c.phoneNumber ?? existing[0]?.phoneNumber ?? '';
+      const gr=c.groupRemoteId ?? existing[0]?.groupRemoteId ?? null;
+      const archived=c.archived!=null? (c.archived?1:0) : (existing[0]?.archived??0);
+      await pool.query('REPLACE INTO contacts VALUES (?,?,?,?,?,?)',[c.remoteId,name,phone,gr, c.updatedAt||now, archived]);
+    }
+    res.json({ok:true});
+  }catch(e){
+    console.error('upsert failed:', e.message);
+    res.status(500).json({error:'DB error: '+e.message});
   }
-  for(const c of contacts){
-    const [existing]=await pool.query('SELECT * FROM contacts WHERE remoteId=?',[c.remoteId]);
-    const name=c.name ?? existing[0]?.name ?? '';
-    const phone=c.phoneNumber ?? existing[0]?.phoneNumber ?? '';
-    const gr=c.groupRemoteId ?? existing[0]?.groupRemoteId ?? null;
-    const archived=c.archived!=null? (c.archived?1:0) : (existing[0]?.archived??0);
-    await pool.query('REPLACE INTO contacts VALUES (?,?,?,?,?,?)',[c.remoteId,name,phone,gr, c.updatedAt||now, archived]);
-  }
-  res.json({ok:true});
 });
 app.post('/api/contacts/archive', verify, async(req,res)=>{
-  const {remoteIds=[], archived}=req.body;
-  for(const id of remoteIds) await pool.query('UPDATE contacts SET archived=?, updatedAt=? WHERE remoteId=?',[archived?1:0, Date.now(), id]);
-  res.json({ok:true});
+  try{
+    const {remoteIds=[], archived}=req.body;
+    for(const id of remoteIds) await pool.query('UPDATE contacts SET archived=?, updatedAt=? WHERE remoteId=?',[archived?1:0, Date.now(), id]);
+    res.json({ok:true});
+  }catch(e){
+    console.error('archive failed:', e.message);
+    res.status(500).json({error:'DB error: '+e.message});
+  }
 });
 app.get('/api/site-content', async(req,res)=>{
   try{

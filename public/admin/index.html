@@ -89,17 +89,15 @@ async function load(){
 async function createGroup(){
   const name=document.getElementById('gName').value.trim(), desc=document.getElementById('gDesc').value.trim();
   if(!name) return alert('Name required');
-  await api('/api/contacts/upsert',{method:'POST',body:JSON.stringify({groups:[{remoteId:crypto.randomUUID(),name,description:desc,updatedAt:Date.now(),archived:0}], contacts:[]})});
-  load();
+  try{ await api('/api/contacts/upsert',{method:'POST',body:JSON.stringify({groups:[{remoteId:crypto.randomUUID(),name,description:desc,updatedAt:Date.now(),archived:0}], contacts:[]})}); load(); }catch(e){ alert('Failed: '+e.message); }
 }
 async function createContact(){
   const name=document.getElementById('cName').value.trim(), phone=document.getElementById('cPhone').value.trim(), gr=document.getElementById('cGroup').value;
   if(!name||!phone) return alert('Name/phone required');
-  await api('/api/contacts/upsert',{method:'POST',body:JSON.stringify({groups:[], contacts:[{remoteId:crypto.randomUUID(),name,phoneNumber:phone,groupRemoteId:gr,updatedAt:Date.now(),archived:0}]})});
-  load();
+  try{ await api('/api/contacts/upsert',{method:'POST',body:JSON.stringify({groups:[], contacts:[{remoteId:crypto.randomUUID(),name,phoneNumber:phone,groupRemoteId:gr,updatedAt:Date.now(),archived:0}]})}); load(); }catch(e){ alert('Failed: '+e.message); }
 }
-async function toggleGroup(id,arch){ await api('/api/contacts/upsert',{method:'POST',body:JSON.stringify({groups:[{remoteId:id, archived: arch?0:1, updatedAt:Date.now()}], contacts:[]})}); load(); }
-async function toggleContact(id,arch){ await api('/api/contacts/archive',{method:'POST',body:JSON.stringify({remoteIds:[id], archived:!arch})}); load(); }
+async function toggleGroup(id,arch){ try{ await api('/api/contacts/upsert',{method:'POST',body:JSON.stringify({groups:[{remoteId:id, archived: arch?0:1, updatedAt:Date.now()}], contacts:[]})}); load(); }catch(e){ alert('Failed: '+e.message); } }
+async function toggleContact(id,arch){ try{ await api('/api/contacts/archive',{method:'POST',body:JSON.stringify({remoteIds:[id], archived:!arch})}); load(); }catch(e){ alert('Failed: '+e.message); } }
 async function loadDevice(){
   try{
     const r=await api('/api/device/status'); document.getElementById('deviceStatus').innerText=JSON.stringify(r);
