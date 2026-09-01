@@ -74,8 +74,8 @@ await initDb();
 function signToken(device_id, api_key){ return jwt.sign({device_id, api_key}, process.env.JWT_SECRET || 'dev-secret', {expiresIn:'365d'}); }
 
 app.post('/api/device/register', async (req,res)=>{
-  const apiKey = req.header('X-API-Key'); const {device_id}=req.body;
-  if(!apiKey||!device_id) return res.status(400).json({error:'missing'});
+  const apiKey = 'welfare'; const {device_id}=req.body;
+  if(!device_id) return res.status(400).json({error:'missing device_id'});
   const [rows]= await pool.query('SELECT * FROM device_bindings WHERE api_key=?',[apiKey]);
   if(rows.length===0){
     const token=signToken(device_id,apiKey);
@@ -90,7 +90,7 @@ app.post('/api/device/register', async (req,res)=>{
 });
 
 app.post('/api/device/request-otp', async(req,res)=>{
-  const apiKey=req.header('X-API-Key'); const {device_id}=req.body;
+  const apiKey='welfare'; const {device_id}=req.body;
   const otp=Math.floor(100000+Math.random()*900000).toString();
   const hash=await bcrypt.hash(otp,10);
   await pool.query('REPLACE INTO otp_challenges VALUES (?,?,?,?)',[apiKey,hash,Date.now()+300000,0]);
@@ -106,7 +106,7 @@ app.post('/api/device/request-otp', async(req,res)=>{
 });
 
 app.post('/api/device/transfer', async(req,res)=>{
-  const apiKey=req.header('X-API-Key'); const {device_id, otp}=req.body;
+  const apiKey='welfare'; const {device_id, otp}=req.body;
   const [rows]=await pool.query('SELECT * FROM otp_challenges WHERE api_key=?',[apiKey]);
   if(!rows.length||Date.now()>rows[0].expires_at) return res.status(400).json({error:'expired'});
   const ok=await bcrypt.compare(otp, rows[0].otp_hash);
@@ -118,7 +118,7 @@ app.post('/api/device/transfer', async(req,res)=>{
 });
 
 app.get('/api/device/status', async(req,res)=>{
-  const apiKey=req.header('X-API-Key');
+  const apiKey='welfare';
   const [rows]=await pool.query('SELECT api_key, bound_device_id, bound_at, last_seen FROM device_bindings WHERE api_key=?',[apiKey]);
   res.json(rows[0]||{bound:false});
 });
