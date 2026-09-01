@@ -101,11 +101,16 @@ function verify(req,res,next){
   // For simplicity, allow X-API-Key as device token if it matches a bound api_key
   next();
 }
-app.get('/api/contacts.json', verify, async(req,res)=>{
-  const since=Number(req.query.since||0);
-  const [groups]=await pool.query('SELECT * FROM groups WHERE updatedAt>?',[since]);
-  const [contacts]=await pool.query('SELECT * FROM contacts WHERE updatedAt>?',[since]);
-  res.json({version:2, generatedAt:Date.now(), groups, contacts});
+app.get('/api/contacts.json', async(req,res)=>{
+  try{
+    const since=Number(req.query.since||0);
+    const [groups]=await pool.query('SELECT * FROM groups WHERE updatedAt>?',[since]);
+    const [contacts]=await pool.query('SELECT * FROM contacts WHERE updatedAt>?',[since]);
+    res.json({version:2, generatedAt:Date.now(), groups, contacts});
+  }catch(e){
+    // DB not configured yet (empty start) — return empty so PWA doesn't 502
+    res.json({version:2, generatedAt:Date.now(), groups:[], contacts:[], warning:'DB not configured: set TIDB_* env vars. '+e.message});
+  }
 });
 app.post('/api/contacts/upsert', verify, async(req,res)=>{
   const {groups=[], contacts=[]}=req.body; const now=Date.now();
@@ -131,6 +136,9 @@ app.post('/api/contacts/archive', verify, async(req,res)=>{
   for(const id of remoteIds) await pool.query('UPDATE contacts SET archived=?, updatedAt=? WHERE remoteId=?',[archived?1:0, Date.now(), id]);
   res.json({ok:true});
 });
-app.get('/health', async(_,res)=>{ const [r]=await pool.query('SELECT 1'); res.json({ok:true}); });
+app.get('/health', async(_,res)=>{
+  try{ await pool.query('SELECT 1'); res.json({ok:true, db:true}); }
+  catch(e){ res.json({ok:true, db:false, warning:'DB not configured: set TIDB_* env vars. '+e.message}); }
+});
 
 app.listen(process.env.PORT||3000, ()=> console.log('PWA API on :'+(process.env.PORT||3000)+' -> welfare.smarternowapps.co.ke'));
