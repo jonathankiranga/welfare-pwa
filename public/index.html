@@ -1,79 +1,64 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Welfare Admin — welfare.smarternowapps.co.ke</title><style>body{font-family:system-ui;padding:20px;max-width:900px;margin:auto}h1{color:#0D47A1}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}button{padding:6px 12px;margin:2px}input,select{padding:6px;margin:2px}.archived{opacity:0.5}</style></head><body>
-<h1>Welfare Admin — welfare.smarternowapps.co.ke</h1>
-<p>Source of truth for contacts/groups. Archive toggle (soft delete). Android is one device lock; PWA can archive.</p>
-<div>
-<h3>Groups</h3>
-<input id="gName" placeholder="Group name (e.g. Customers - Nairobi)"/>
-<input id="gDesc" placeholder="Description"/>
-<button onclick="createGroup()">Add Group</button>
-<table id="groups"><tr><th>Name</th><th>Contacts</th><th>Archived</th><th>Actions</th></tr></table>
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Smarternow Welfare — welfare.smarternowapps.co.ke</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%230D47A1'/%3E%3Ctext x='50' y='68' font-size='50' text-anchor='middle' fill='white' font-family='sans-serif'%3ES%3C/text%3E%3C/svg%3E">
+<style>
+:root{--primary:#0D47A1;--primary-dark:#002171;--accent:#00C853;--bg:#F5F7FA;--card:#fff;--text:#1A1A2E;--muted:#6B7280}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;background:var(--bg);color:var(--text)}
+.header{background:linear-gradient(135deg,var(--primary),#1976D2);color:#fff;padding:32px 20px;text-align:center}
+.header h1{margin:0;font-size:28px;letter-spacing:.5px}
+.header p{margin:8px 0 0;opacity:.9}
+.container{max-width:900px;margin:24px auto;padding:0 16px}
+.card{background:var(--card);border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,.08);padding:20px;margin:16px 0}
+.btn{display:inline-block;padding:10px 18px;border-radius:12px;border:0;background:var(--primary);color:#fff;text-decoration:none;font-weight:600;cursor:pointer}
+.btn.outline{background:#fff;color:var(--primary);border:1px solid var(--primary)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.badge{display:inline-block;padding:4px 10px;border-radius:20px;background:#E3F2FD;color:var(--primary);font-size:12px;font-weight:600}
+.status{padding:12px;border-radius:12px;background:#E8F5E9;color:#1B5E20;margin:12px 0}
+a{color:var(--primary)}
+</style></head><body>
+<div class="header">
+  <h1>Smarternow Welfare</h1>
+  <p>welfare.smarternowapps.co.ke — Source of truth for contacts &amp; groups</p>
+  <p><span class="badge">PWA • Online</span> <span class="badge" style="background:#FFF3E0;color:#E65100">Archive-only</span></p>
 </div>
-<div>
-<h3>Contacts</h3>
-<input id="cName" placeholder="Name (e.g. Jane Wanjiku)"/>
-<input id="cPhone" placeholder="Phone +254..."/>
-<select id="cGroup"></select>
-<button onclick="createContact()">Add Contact</button>
-<table id="contacts"><tr><th>Name</th><th>Phone</th><th>Group</th><th>Archived</th><th>Actions</th></tr></table>
-</div>
-<div>
-<h3>Device Binding</h3>
-<p id="deviceStatus">Loading…</p>
-<button onclick="loadDevice()">Refresh</button>
+<div class="container">
+  <div class="card">
+    <h2>Welcome</h2>
+    <p>This PWA is the <b>source of truth</b> for all contacts and groups. The Android app on the admin phone keeps a <b>local copy</b> for sending SMS via Africa's Talking — it syncs <b>once per day + on demand</b>.</p>
+    <p><a class="btn" href="/admin/">Open Admin → Groups &amp; Contacts</a> <a class="btn outline" href="/health" target="_blank">Health</a></p>
+    <div id="health" class="status">Checking backend…</div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <h3>Groups</h3>
+      <p style="color:var(--muted)">Create groups like <i>Customers - Nairobi</i>. They sync to Android with shared <code>remoteId</code>.</p>
+      <a class="btn outline" href="/admin/">Manage Groups</a>
+    </div>
+    <div class="card">
+      <h3>Contacts</h3>
+      <p style="color:var(--muted)">Add contacts with <code>+254…</code> phones, assign to a group, archive (soft delete) when needed.</p>
+      <a class="btn outline" href="/admin/">Manage Contacts</a>
+    </div>
+    <div class="card">
+      <h3>Device Lock</h3>
+      <p style="color:var(--muted)">One APK, one device. First phone binds; other clones need self-service OTP to transfer.</p>
+      <a class="btn outline" href="/admin/">View Binding</a>
+    </div>
+  </div>
+  <div class="card">
+    <h3>How it works</h3>
+    <ol>
+      <li>PWA at this URL is the backup/source — empty start, first Android <code>POST</code> seeds TiDB (<code>gateway01.ap-southeast-1.prod.aws.tidbcloud.com</code>).</li>
+      <li>Android keeps local Room DB for sending (no relay at send time).</li>
+      <li>Sync: daily <code>WorkManager</code> + <b>Sync now</b> in Android Settings/Main.</li>
+      <li>Archive (not hard delete) on both PWA and Android.</li>
+    </ol>
+  </div>
 </div>
 <script>
-const API=''; // same origin — PWA is source of truth, no API key needed in browser
-async function api(path, opts={}){
-  opts.headers=Object.assign({'Content-Type':'application/json'}, opts.headers||{});
-  const r=await fetch(path,opts);
-  const text=await r.text();
-  if(!r.ok){
-    // Render 502 HTML should not be shown raw — show friendly
-    if(text.includes('<!DOCTYPE')||text.includes('502')) throw new Error('Backend not ready — set TIDB_* env vars on Render and redeploy. ('+r.status+')');
-    throw new Error(text);
-  }
-  try{ return JSON.parse(text); }catch(e){ throw new Error('Invalid JSON: '+text.slice(0,200)); }
-}
-async function load(){
-  try{
-    const data=await api('/api/contacts.json');
-    const gSel=document.getElementById('cGroup'); gSel.innerHTML='';
-    const gt=document.getElementById('groups');
-    gt.innerHTML='<tr><th>Name</th><th>Contacts</th><th>Archived</th><th>Actions</th></tr>';
-    data.groups.forEach(g=>{
-      const tr=document.createElement('tr'); if(g.archived) tr.className='archived';
-      tr.innerHTML=`<td>${g.name}</td><td>${g.description||''}</td><td>${g.archived?'Yes':''}</td><td><button onclick="toggleGroup('${g.remoteId}',${g.archived})">${g.archived?'Unarchive':'Archive'}</button></td>`;
-      gt.appendChild(tr);
-      const o=document.createElement('option'); o.value=g.remoteId; o.textContent=g.name; gSel.appendChild(o);
-    });
-    const ct=document.getElementById('contacts');
-    ct.innerHTML='<tr><th>Name</th><th>Phone</th><th>Group</th><th>Archived</th><th>Actions</th></tr>';
-    data.contacts.forEach(c=>{
-      const tr=document.createElement('tr'); if(c.archived) tr.className='archived';
-      const gName=(data.groups.find(g=>g.remoteId===c.groupRemoteId)||{}).name||'';
-      tr.innerHTML=`<td>${c.name}</td><td>${c.phoneNumber}</td><td>${gName}</td><td>${c.archived?'Yes':''}</td><td><button onclick="toggleContact('${c.remoteId}',${c.archived})">${c.archived?'Unarchive':'Archive'}</button></td>`;
-      ct.appendChild(tr);
-    });
-  }catch(e){ document.body.innerHTML+='<p style=color:red>Load failed: '+e.message+'</p>';}
-}
-async function createGroup(){
-  const name=document.getElementById('gName').value.trim(), desc=document.getElementById('gDesc').value.trim();
-  if(!name) return alert('Name required');
-  await api('/api/contacts/upsert',{method:'POST',body:JSON.stringify({groups:[{remoteId:crypto.randomUUID(),name,description:desc,updatedAt:Date.now(),archived:0}], contacts:[]})});
-  load();
-}
-async function createContact(){
-  const name=document.getElementById('cName').value.trim(), phone=document.getElementById('cPhone').value.trim(), gr=document.getElementById('cGroup').value;
-  if(!name||!phone) return alert('Name/phone required');
-  await api('/api/contacts/upsert',{method:'POST',body:JSON.stringify({groups:[], contacts:[{remoteId:crypto.randomUUID(),name,phoneNumber:phone,groupRemoteId:gr,updatedAt:Date.now(),archived:0}]})});
-  load();
-}
-async function toggleGroup(id,arch){ await api('/api/contacts/upsert',{method:'POST',body:JSON.stringify({groups:[{remoteId:id, archived: arch?0:1, updatedAt:Date.now()}], contacts:[]})}); load(); }
-async function toggleContact(id,arch){ await api('/api/contacts/archive',{method:'POST',body:JSON.stringify({remoteIds:[id], archived:!arch})}); load(); }
-async function loadDevice(){
-  try{
-    const r=await api('/api/device/status'); document.getElementById('deviceStatus').innerText=JSON.stringify(r);
-  }catch(e){ document.getElementById('deviceStatus').innerText='Device status: '+e.message; }
-}
-load();
-</script></body></html>
+fetch('/health').then(r=>r.json()).then(j=>{
+  document.getElementById('health').textContent = j.db ? 'Backend OK — DB connected' : 'Backend OK — DB not configured yet (set TIDB_* env vars, then first Android sync will seed)';
+}).catch(()=>{document.getElementById('health').textContent='Backend unreachable — check Render deploy logs'; document.getElementById('health').style.background='#FFEBEE'; document.getElementById('health').style.color='#B71C1C'});
+</script>
+</body></html>
