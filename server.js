@@ -11,21 +11,33 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
+function buildSsl() {
+  // TiDB Cloud requires TLS. Try CA file if present, else fallback to system CAs
+  try {
+    const caPath = process.env.TIDB_CA || './certs/tidb-ca.pem';
+    if (fs.existsSync(caPath)) return { ca: fs.readFileSync(caPath), minVersion: 'TLSv1.2', rejectUnauthorized: true };
+  } catch {}
+  return { minVersion: 'TLSv1.2', rejectUnauthorized: true };
+}
 const pool = mysql.createPool({
   host: process.env.TIDB_HOST,
   port: Number(process.env.TIDB_PORT || 4000),
   user: process.env.TIDB_USER,
   password: process.env.TIDB_PASS,
   database: process.env.TIDB_DB,
-  ssl: { ca: fs.readFileSync(process.env.TIDB_CA || './certs/tidb-ca.pem') },
+  ssl: process.env.TIDB_HOST ? buildSsl() : undefined,
   waitForConnections: true, connectionLimit: 5
 });
 
-// Init tables (empty start, first Android POST populates)
-await pool.query(`CREATE TABLE IF NOT EXISTS groups (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, updatedAt BIGINT, archived TINYINT DEFAULT 0)`);
-await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES groups(remoteId))`);
-await pool.query(`CREATE TABLE IF NOT EXISTS device_bindings (api_key VARCHAR(64) PRIMARY KEY, bound_device_id VARCHAR(128), device_token VARCHAR(512), bound_at BIGINT, last_seen BIGINT)`);
-await pool.query(`CREATE TABLE IF NOT EXISTS otp_challenges (api_key VARCHAR(64) PRIMARY KEY, otp_hash VARCHAR(128), expires_at BIGINT, attempts TINYINT DEFAULT 0)`);
+// Init tables (empty start, first Android POST populates) — don't crash if DB not configured yet
+try {
+  await pool.query(`CREATE TABLE IF NOT EXISTS groups (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, updatedAt BIGINT, archived TINYINT DEFAULT 0)`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES groups(remoteId))`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS device_bindings (api_key VARCHAR(64) PRIMARY KEY, bound_device_id VARCHAR(128), device_token VARCHAR(512), bound_at BIGINT, last_seen BIGINT)`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS otp_challenges (api_key VARCHAR(64) PRIMARY KEY, otp_hash VARCHAR(128), expires_at BIGINT, attempts TINYINT DEFAULT 0)`);
+} catch (e) {
+  console.warn('DB init skipped (set TIDB_* env vars on Render):', e.message);
+}
 
 // --- device lock + self-service OTP ---
 function signToken(device_id, api_key){ return jwt.sign({device_id, api_key}, process.env.JWT_SECRET || 'dev-secret', {expiresIn:'365d'}); }
