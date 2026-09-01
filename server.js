@@ -29,15 +29,41 @@ const pool = mysql.createPool({
   waitForConnections: true, connectionLimit: 5
 });
 
-// Init tables (empty start, first Android POST populates) — don't crash if DB not configured yet
-try {
-  await pool.query(`CREATE TABLE IF NOT EXISTS groups (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, updatedAt BIGINT, archived TINYINT DEFAULT 0)`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES groups(remoteId))`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS device_bindings (api_key VARCHAR(64) PRIMARY KEY, bound_device_id VARCHAR(128), device_token VARCHAR(512), bound_at BIGINT, last_seen BIGINT)`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS otp_challenges (api_key VARCHAR(64) PRIMARY KEY, otp_hash VARCHAR(128), expires_at BIGINT, attempts TINYINT DEFAULT 0)`);
-} catch (e) {
-  console.warn('DB init skipped (set TIDB_* env vars on Render):', e.message);
+// Init tables — auto-create DB if missing (TiDB starts empty)
+async function initDb() {
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS groups (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, updatedAt BIGINT, archived TINYINT DEFAULT 0)`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES groups(remoteId))`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS device_bindings (api_key VARCHAR(64) PRIMARY KEY, bound_device_id VARCHAR(128), device_token VARCHAR(512), bound_at BIGINT, last_seen BIGINT)`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS otp_challenges (api_key VARCHAR(64) PRIMARY KEY, otp_hash VARCHAR(128), expires_at BIGINT, attempts TINYINT DEFAULT 0)`);
+  } catch (e) {
+    if (e.message.includes('Unknown database')) {
+      const dbName = process.env.TIDB_DB;
+      console.warn(`DB '${dbName}' not found — creating...`);
+      // Connect without DB to create it, then retry
+      const tmpPool = mysql.createPool({
+        host: process.env.TIDB_HOST, port: Number(process.env.TIDB_PORT || 4000),
+        user: process.env.TIDB_USER, password: process.env.TIDB_PASS,
+        ssl: buildSsl(), waitForConnections: true, connectionLimit: 2
+      });
+      try {
+        await tmpPool.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
+        console.log(`Created database ${dbName}, retrying init...`);
+        await tmpPool.end();
+        // Retry once
+        await pool.query(`CREATE TABLE IF NOT EXISTS groups (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, updatedAt BIGINT, archived TINYINT DEFAULT 0)`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES groups(remoteId))`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS device_bindings (api_key VARCHAR(64) PRIMARY KEY, bound_device_id VARCHAR(128), device_token VARCHAR(512), bound_at BIGINT, last_seen BIGINT)`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS otp_challenges (api_key VARCHAR(64) PRIMARY KEY, otp_hash VARCHAR(128), expires_at BIGINT, attempts TINYINT DEFAULT 0)`);
+      } catch (e2) {
+        console.warn('DB auto-create failed (create it manually in TiDB Dashboard):', e2.message);
+      } finally { try{ await tmpPool.end(); }catch{} }
+    } else {
+      console.warn('DB init skipped (set TIDB_* env vars on Render):', e.message);
+    }
+  }
 }
+await initDb();
 
 // --- device lock + self-service OTP ---
 function signToken(device_id, api_key){ return jwt.sign({device_id, api_key}, process.env.JWT_SECRET || 'dev-secret', {expiresIn:'365d'}); }
