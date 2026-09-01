@@ -36,11 +36,16 @@ async function initDb() {
     await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES contact_groups(remoteId))`);
     await pool.query(`CREATE TABLE IF NOT EXISTS device_bindings (api_key VARCHAR(64) PRIMARY KEY, bound_device_id VARCHAR(128), device_token VARCHAR(512), bound_at BIGINT, last_seen BIGINT)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS otp_challenges (api_key VARCHAR(64) PRIMARY KEY, otp_hash VARCHAR(128), expires_at BIGINT, attempts TINYINT DEFAULT 0)`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS site_content (keyName VARCHAR(64) PRIMARY KEY, value TEXT, updatedAt BIGINT)`);
+    // Seed default homepage content if empty
+    const [existing] = await pool.query(`SELECT * FROM site_content WHERE keyName='homepage'`);
+    if (existing.length === 0) {
+      await pool.query(`INSERT INTO site_content VALUES (?,?,?)`, ['homepage', JSON.stringify({title:'Smarternow Welfare', subtitle:'Private System — Staff Access Only', message:'This is a closed internal system for authorized staff. Please log in to manage groups and contacts.'}), Date.now()]);
+    }
   } catch (e) {
     if (e.message.includes('Unknown database')) {
       const dbName = process.env.TIDB_DB;
       console.warn(`DB '${dbName}' not found — creating...`);
-      // Connect without DB to create it, then retry
       const tmpPool = mysql.createPool({
         host: process.env.TIDB_HOST, port: Number(process.env.TIDB_PORT || 4000),
         user: process.env.TIDB_USER, password: process.env.TIDB_PASS,
@@ -50,11 +55,11 @@ async function initDb() {
         await tmpPool.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
         console.log(`Created database ${dbName}, retrying init...`);
         await tmpPool.end();
-        // Retry once
         await pool.query(`CREATE TABLE IF NOT EXISTS contact_groups (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, updatedAt BIGINT, archived TINYINT DEFAULT 0)`);
         await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES contact_groups(remoteId))`);
         await pool.query(`CREATE TABLE IF NOT EXISTS device_bindings (api_key VARCHAR(64) PRIMARY KEY, bound_device_id VARCHAR(128), device_token VARCHAR(512), bound_at BIGINT, last_seen BIGINT)`);
         await pool.query(`CREATE TABLE IF NOT EXISTS otp_challenges (api_key VARCHAR(64) PRIMARY KEY, otp_hash VARCHAR(128), expires_at BIGINT, attempts TINYINT DEFAULT 0)`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS site_content (keyName VARCHAR(64) PRIMARY KEY, value TEXT, updatedAt BIGINT)`);
       } catch (e2) {
         console.warn('DB auto-create failed (create it manually in TiDB Dashboard):', e2.message);
       } finally { try{ await tmpPool.end(); }catch{} }
@@ -162,6 +167,20 @@ app.post('/api/contacts/archive', verify, async(req,res)=>{
   for(const id of remoteIds) await pool.query('UPDATE contacts SET archived=?, updatedAt=? WHERE remoteId=?',[archived?1:0, Date.now(), id]);
   res.json({ok:true});
 });
+app.get('/api/site-content', async(req,res)=>{
+  try{
+    const [rows]=await pool.query(`SELECT value FROM site_content WHERE keyName='homepage'`);
+    if(rows.length===0) return res.json({title:'Smarternow Welfare', subtitle:'Private System — Staff Access Only', message:'This is a closed internal system for authorized staff.'});
+    res.json(JSON.parse(rows[0].value));
+  }catch(e){ res.json({title:'Smarternow Welfare', subtitle:'Private System — Staff Access Only', message:'This is a closed internal system.'}); }
+});
+app.post('/api/site-content', async(req,res)=>{
+  const {title, subtitle, message}=req.body;
+  if(!title) return res.status(400).json({error:'title required'});
+  await pool.query(`REPLACE INTO site_content VALUES (?,?,?)`, ['homepage', JSON.stringify({title, subtitle, message}), Date.now()]);
+  res.json({ok:true});
+});
+
 app.get('/health', async(_,res)=>{
   try{ await pool.query('SELECT 1'); res.json({ok:true, db:true}); }
   catch(e){ res.json({ok:true, db:false, warning:'DB not configured: set TIDB_* env vars. '+e.message}); }
