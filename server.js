@@ -13,6 +13,18 @@ app.use(express.static('public'));
 // favicon 204 to avoid 404 log noise
 app.get('/favicon.ico', (req,res)=> res.status(204).end());
 
+function normalizePhone(raw) {
+  if (!raw) return raw;
+  let p = raw.replace(/[^0-9+]/g, '');
+  if (p.length === 0) return raw;
+  if (p.startsWith('+')) p = p.substring(1);
+  if (p.startsWith('254') && p.length >= 12) return '+' + p;
+  if (p.startsWith('0') && p.length === 10) return '+254' + p.substring(1);
+  if (p.startsWith('7') && p.length === 9) return '+254' + p;
+  if (p.length === 12 && p.startsWith('254')) return '+' + p;
+  return raw;
+}
+
 function buildSsl() {
   // TiDB Cloud requires TLS. Try CA file if present, else fallback to system CAs
   try {
@@ -35,7 +47,7 @@ const pool = mysql.createPool({
 async function initDb() {
   try {
     await pool.query(`CREATE TABLE IF NOT EXISTS contact_groups (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, updatedAt BIGINT, archived TINYINT DEFAULT 0)`);
-    await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES contact_groups(remoteId))`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES contact_groups(remoteId), UNIQUE INDEX idx_phoneNumber (phoneNumber))`);
     await pool.query(`CREATE TABLE IF NOT EXISTS device_bindings (api_key VARCHAR(64) PRIMARY KEY, bound_device_id VARCHAR(128), device_token VARCHAR(512), bound_at BIGINT, last_seen BIGINT)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS otp_challenges (api_key VARCHAR(64) PRIMARY KEY, otp_hash VARCHAR(128), expires_at BIGINT, attempts TINYINT DEFAULT 0)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS site_content (keyName VARCHAR(64) PRIMARY KEY, value TEXT, updatedAt BIGINT)`);
@@ -43,6 +55,20 @@ async function initDb() {
     const [existing] = await pool.query(`SELECT * FROM site_content WHERE keyName='homepage'`);
     if (existing.length === 0) {
       await pool.query(`INSERT INTO site_content VALUES (?,?,?)`, ['homepage', JSON.stringify({title:'Smarternow Welfare', subtitle:'Private System — Staff Access Only', message:'This is a closed internal system for authorized staff. Please log in to manage groups and contacts.'}), Date.now()]);
+    }
+    // Migrate: normalize existing phone numbers, remove duplicates, ensure UNIQUE index
+    try {
+      const [existingContacts] = await pool.query('SELECT remoteId, phoneNumber FROM contacts WHERE phoneNumber IS NOT NULL AND phoneNumber != ""');
+      for (const c of existingContacts) {
+        const normalized = normalizePhone(c.phoneNumber);
+        if (normalized !== c.phoneNumber) {
+          await pool.query('UPDATE contacts SET phoneNumber = ? WHERE remoteId = ?', [normalized, c.remoteId]);
+        }
+      }
+      await pool.query(`DELETE c1 FROM contacts c1 INNER JOIN contacts c2 WHERE c1.phoneNumber = c2.phoneNumber AND c1.remoteId > c2.remoteId AND c1.phoneNumber IS NOT NULL AND c1.phoneNumber != ""`);
+      try { await pool.query('ALTER TABLE contacts ADD UNIQUE INDEX idx_phoneNumber (phoneNumber)'); } catch(e) { /* index already exists */ }
+    } catch (migrateErr) {
+      console.warn('Phone migration skipped:', migrateErr.message);
     }
   } catch (e) {
     if (e.message.includes('Unknown database')) {
@@ -58,7 +84,7 @@ async function initDb() {
         console.log(`Created database ${dbName}, retrying init...`);
         await tmpPool.end();
         await pool.query(`CREATE TABLE IF NOT EXISTS contact_groups (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, updatedAt BIGINT, archived TINYINT DEFAULT 0)`);
-        await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES contact_groups(remoteId))`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS contacts (remoteId VARCHAR(36) PRIMARY KEY, name VARCHAR(255), phoneNumber VARCHAR(20), groupRemoteId VARCHAR(36), updatedAt BIGINT, archived TINYINT DEFAULT 0, FOREIGN KEY (groupRemoteId) REFERENCES contact_groups(remoteId), UNIQUE INDEX idx_phoneNumber (phoneNumber))`);
         await pool.query(`CREATE TABLE IF NOT EXISTS device_bindings (api_key VARCHAR(64) PRIMARY KEY, bound_device_id VARCHAR(128), device_token VARCHAR(512), bound_at BIGINT, last_seen BIGINT)`);
         await pool.query(`CREATE TABLE IF NOT EXISTS otp_challenges (api_key VARCHAR(64) PRIMARY KEY, otp_hash VARCHAR(128), expires_at BIGINT, attempts TINYINT DEFAULT 0)`);
         await pool.query(`CREATE TABLE IF NOT EXISTS site_content (keyName VARCHAR(64) PRIMARY KEY, value TEXT, updatedAt BIGINT)`);
@@ -163,7 +189,7 @@ app.post('/api/contacts/upsert', verify, async(req,res)=>{
     for(const c of contacts){
       const [existing]=await pool.query('SELECT * FROM contacts WHERE remoteId=?',[c.remoteId]);
       const name=c.name ?? existing[0]?.name ?? '';
-      const phone=c.phoneNumber ?? existing[0]?.phoneNumber ?? '';
+       const phone=normalizePhone(c.phoneNumber ?? existing[0]?.phoneNumber ?? '');
       const gr=c.groupRemoteId ?? existing[0]?.groupRemoteId ?? null;
       const archived=c.archived!=null? (c.archived?1:0) : (existing[0]?.archived??0);
       const ts=c.updatedAt||now;
@@ -174,9 +200,14 @@ app.post('/api/contacts/upsert', verify, async(req,res)=>{
       }
     }
     res.json({ok:true});
-  }catch(e){
-    console.error('upsert failed:', e.message);
-    res.status(500).json({error:'DB error: '+e.message});
+   }catch(e){
+    if(e.message && e.message.includes('Duplicate')){
+      console.error('upsert duplicate phone:', e.message);
+      res.status(409).json({error:'Duplicate phone number — each contact must have a unique number'});
+    } else {
+      console.error('upsert failed:', e.message);
+      res.status(500).json({error:'DB error: '+e.message});
+    }
   }
 });
 app.post('/api/contacts/archive', verify, async(req,res)=>{
